@@ -1,0 +1,4 @@
+#Wed Jan 03 11:20:26 IST 2018
+base.0=/Users/DL/IdeaProjects/SampleProjects/goolgesolutions/transport-tracker/android/app/build/intermediates/transforms/dexMerger/debug/11
+renamed.0=classes.dex
+file.0=/Users/DL/IdeaProjects/SampleProjects/goolgesolutions/transport-tracker/android/app/build/intermediates/transforms/dexMerger/debug/11/classes.dex
