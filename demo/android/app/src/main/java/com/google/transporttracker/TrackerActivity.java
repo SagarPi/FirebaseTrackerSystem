@@ -1,12 +1,12 @@
 /**
  * Copyright 2017 Google Inc. All Rights Reserved.
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -28,6 +28,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.location.LocationManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
@@ -38,7 +39,6 @@ import android.support.v4.content.LocalBroadcastManager;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.SwitchCompat;
-import android.text.method.PasswordTransformationMethod;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -47,7 +47,14 @@ import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
-public class TrackerActivity extends AppCompatActivity {
+import com.google.android.gms.maps.model.LatLng;
+import com.google.firebase.database.ChildEventListener;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
+
+public class TrackerActivity extends AppCompatActivity implements CustomDialog.CustomDialogClickListener {
 
     private static final int PERMISSIONS_REQUEST = 1;
     private static String[] PERMISSIONS_REQUIRED = new String[]{
@@ -62,6 +69,12 @@ public class TrackerActivity extends AppCompatActivity {
     private SwitchCompat mSwitch;
     private Snackbar mSnackbarPermissions;
     private Snackbar mSnackbarGps;
+    private final int AMBULANCE_REQUEST = 100;
+    private DatabaseReference mRequestReference;
+    private String mKey;
+    private LatLng mLocation;
+    private CustomDialog mCustomDialog;
+    private String mTransportId;
 
     /**
      * Configures UI elements, and starts validation if inputs have previously been entered.
@@ -74,7 +87,7 @@ public class TrackerActivity extends AppCompatActivity {
         mStartButton = (Button) findViewById(R.id.button_start);
         mStartButton.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                checkInputFields();
+                checkInputFields("");
             }
         });
 
@@ -104,6 +117,85 @@ public class TrackerActivity extends AppCompatActivity {
             mPasswordEditText.setText(getString(R.string.build_password));
         }
 
+        connectToRequests();
+    }
+
+    private void connectToRequests() {
+        String path2 = getString(R.string.firebase_request);
+        mRequestReference = FirebaseDatabase.getInstance().getReference(path2);
+        mRequestReference.addChildEventListener(new ChildEventListener() {
+            @Override
+            public void onChildAdded(DataSnapshot dataSnapshot, String s) {
+                Toast.makeText(getApplicationContext(), "added child with key : " + dataSnapshot.getKey(), Toast.LENGTH_SHORT).show();
+                showDialogForAndroid(dataSnapshot);
+//                showdialogTest(dataSnapshot);
+            }
+
+            private void showdialogTest(DataSnapshot dataSnapshot) {
+                mCustomDialog = new CustomDialog(TrackerActivity.this, AMBULANCE_REQUEST);
+                mKey = dataSnapshot.getKey();
+                mLocation = new LatLng(Double.parseDouble(dataSnapshot.child("lat").getValue().toString()), Double.parseDouble(dataSnapshot.child("lng").getValue().toString()));
+                mCustomDialog.showCustomDialog("Alert", "Accept Ambulance", "ACCEPT",
+                        "CANCEL", TrackerActivity.this);
+            }
+
+            android.app.AlertDialog dialog;
+
+            private void showDialogForAndroid(final DataSnapshot dataSnapshot) {
+                mKey = dataSnapshot.getKey();
+                mLocation = new LatLng(Double.parseDouble(dataSnapshot.child("lat").getValue().toString()), Double.parseDouble(dataSnapshot.child("lng").getValue().toString()));
+                mTransportId = dataSnapshot.child("imei").getValue().toString();
+                android.app.AlertDialog.Builder builder;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    builder = new android.app.AlertDialog.Builder(TrackerActivity.this, android.R.style.Theme_Material_Dialog_Alert);
+                } else {
+                    builder = new android.app.AlertDialog.Builder(TrackerActivity.this);
+                }
+                dialog = builder.setTitle("Alert")
+                        .setMessage("Accept Ambulance request ?")
+                        .setPositiveButton(android.R.string.yes, new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog, int which) {
+                                onPositiveButtonClicked(dialog, AMBULANCE_REQUEST);
+                            }
+                        })
+                        .setNegativeButton(android.R.string.no, new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog, int which) {
+                                // do nothing
+                            }
+                        })
+                        .setIcon(android.R.drawable.ic_dialog_alert)
+                        .show();
+            }
+
+
+            @Override
+            public void onChildChanged(DataSnapshot dataSnapshot, String s) {
+
+            }
+
+            @Override
+            public void onChildRemoved(DataSnapshot dataSnapshot) {
+//                if(mCustomDialog != null) {
+//                    Toast.makeText(TrackerActivity.this, "got custom dialog instance", Toast.LENGTH_SHORT).show();
+//                    mCustomDialog.cancel();
+//                }
+                if (dialog != null) {
+                    Toast.makeText(TrackerActivity.this, "got custom dialog instance", Toast.LENGTH_SHORT).show();
+                    dialog.cancel();
+                }
+//                    mCustomDialog.dismiss();
+            }
+
+            @Override
+            public void onChildMoved(DataSnapshot dataSnapshot, String s) {
+
+            }
+
+            @Override
+            public void onCancelled(DatabaseError databaseError) {
+
+            }
+        });
     }
 
     private boolean isServiceRunning(Class<?> serviceClass) {
@@ -155,15 +247,17 @@ public class TrackerActivity extends AppCompatActivity {
     /**
      * First validation check - ensures that required inputs have been
      * entered, and if so, store them and runs the next check.
+     *
+     * @param mTransportId
      */
-    private void checkInputFields() {
+    private void checkInputFields(String mTransportId) {
         if (mTransportIdEditText.length() == 0 || mEmailEditText.length() == 0 ||
                 mPasswordEditText.length() == 0) {
             Toast.makeText(TrackerActivity.this, R.string.missing_inputs, Toast.LENGTH_SHORT).show();
         } else {
             // Store values.
             SharedPreferences.Editor editor = mPrefs.edit();
-            editor.putString(getString(R.string.transport_id), mTransportIdEditText.getText().toString());
+            editor.putString(getString(R.string.transport_id), mTransportId == "" ? mTransportIdEditText.getText().toString() : mTransportId);
             editor.putString(getString(R.string.email), mEmailEditText.getText().toString());
             editor.putString(getString(R.string.password), mPasswordEditText.getText().toString());
             editor.apply();
@@ -174,7 +268,7 @@ public class TrackerActivity extends AppCompatActivity {
     }
 
     /**
-     * Second validation check - ensures the app has location permissions, and
+     * Second validation check - ensures the app has mLocation permissions, and
      * if not, requests them, otherwise runs the next check.
      */
     private void checkLocationPermission() {
@@ -192,7 +286,7 @@ public class TrackerActivity extends AppCompatActivity {
 
     /**
      * Third and final validation check - ensures GPS is enabled, and if not, prompts to
-     * enable it, otherwise all checks pass so start the location tracking service.
+     * enable it, otherwise all checks pass so start the mLocation tracking service.
      */
     private void checkGpsEnabled() {
         LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
@@ -205,13 +299,13 @@ public class TrackerActivity extends AppCompatActivity {
     }
 
     /**
-     * Callback for location permission request - if successful, run the GPS check.
+     * Callback for mLocation permission request - if successful, run the GPS check.
      */
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[]
             grantResults) {
         if (requestCode == PERMISSIONS_REQUEST) {
-            // We request storage perms as well as location perms, but don't care
+            // We request storage perms as well as mLocation perms, but don't care
             // about the storage perms - it's just for debugging.
             for (int i = 0; i < permissions.length; i++) {
                 if (permissions[i].equals(Manifest.permission.ACCESS_FINE_LOCATION)) {
@@ -257,7 +351,7 @@ public class TrackerActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 if (((SwitchCompat) v).isChecked()) {
-                    checkInputFields();
+                    checkInputFields("");
                 } else {
                     confirmStop();
                 }
@@ -279,7 +373,8 @@ public class TrackerActivity extends AppCompatActivity {
                         mPasswordEditText.setEnabled(true);
                         mStartButton.setVisibility(View.VISIBLE);
                         stopLocationService();
-                    }})
+                    }
+                })
                 .setNegativeButton(android.R.string.no, null).show();
     }
 
@@ -295,7 +390,7 @@ public class TrackerActivity extends AppCompatActivity {
                 .setAction(R.string.enable, new View.OnClickListener() {
                     @Override
                     public void onClick(View view) {
-                        Intent intent = new Intent(android.provider.Settings
+                        Intent intent = new Intent(Settings
                                 .ACTION_APPLICATION_DETAILS_SETTINGS);
                         intent.setData(Uri.parse("package:" + getPackageName()));
                         startActivity(intent);
@@ -350,6 +445,26 @@ public class TrackerActivity extends AppCompatActivity {
         if (mSnackbarGps != null) {
             mSnackbarGps.dismiss();
             mSnackbarGps = null;
+        }
+    }
+
+    @Override
+    public void onPositiveButtonClicked(DialogInterface dialog, int requestCode) {
+        if (requestCode == AMBULANCE_REQUEST) {
+            Toast.makeText(this, "Request ACCEPT", Toast.LENGTH_LONG).show();
+            mRequestReference.child(mKey).removeValue();
+            checkInputFields(mTransportId);
+            Intent intent = new Intent(Intent.ACTION_VIEW,
+                    Uri.parse("http://maps.google.com/maps?mode=driving&daddr=" + mLocation.latitude + "," + mLocation.longitude));
+            startActivity(intent);
+        }
+
+    }
+
+    @Override
+    public void onNegativeButtonClicked(DialogInterface dialog, int requestCode) {
+        if (requestCode == AMBULANCE_REQUEST) {
+            Toast.makeText(this, "Request CANCELLED", Toast.LENGTH_LONG).show();
         }
     }
 }
